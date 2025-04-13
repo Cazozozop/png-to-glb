@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GLB Texture Tool</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      background-color: #111;
+      color: #eee;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 2rem;
+    }
+    canvas {
+      width: 400px;
+      height: 400px;
+      border: 1px solid #444;
+      margin-top: 1rem;
+    }
+    input, select, button {
+      margin: 0.5rem;
+    }
+  </style>
+</head>
+<body>
+  <h1>GLB Texture Tool</h1>
+  <input type="file" id="textureInput" accept="image/*" />
+  <select id="scaleSelect">
+    <option value="0.75">8x8 (0.75)</option>
+    <option value="1.5">16x16 (1.5)</option>
+    <option value="3.0">32x32 (3.0)</option>
+    <option value="6.0">64x64 (6.0)</option>
+  </select>
+  <label><input type="checkbox" id="normalMapCheck" /> Générer normal map</label>
+  <button id="generateBtn">Visualiser</button>
+  <button id="downloadBtn">Télécharger GLB</button>
+  <div id="viewer"></div>
+
+  <script type="module">
+    import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.1/build/three.module.js';
+    import { GLTFExporter } from 'https://cdn.jsdelivr.net/npm/three@0.160.1/examples/jsm/exporters/GLTFExporter.js';
+    import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.160.1/examples/jsm/controls/OrbitControls.js';
+
+    let scene, camera, renderer, mesh, controls;
+
+    const viewer = document.getElementById('viewer');
+    const generateBtn = document.getElementById('generateBtn');
+    const downloadBtn = document.getElementById('downloadBtn');
+
+    const textureInput = document.getElementById('textureInput');
+    const scaleSelect = document.getElementById('scaleSelect');
+    const normalMapCheck = document.getElementById('normalMapCheck');
+
+    init();
+
+    function init() {
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color('#222');
+      camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
+      camera.position.set(0, 0, 3);
+
+      renderer = new THREE.WebGLRenderer();
+      renderer.setSize(400, 400);
+      viewer.appendChild(renderer.domElement);
+
+      controls = new OrbitControls(camera, renderer.domElement);
+      animate();
+    }
+
+    function animate() {
+      requestAnimationFrame(animate);
+      renderer.render(scene, camera);
+    }
+
+    generateBtn.onclick = async () => {
+      if (!textureInput.files[0]) return alert("Choisis une texture.");
+      const scale = parseFloat(scaleSelect.value);
+      const texURL = URL.createObjectURL(textureInput.files[0]);
+
+      const loader = new THREE.TextureLoader();
+      const texture = await loader.loadAsync(texURL);
+      let normalMap = null;
+
+      if (normalMapCheck.checked) {
+        normalMap = texture.clone();
+        normalMap.encoding = THREE.LinearEncoding;
+        normalMap.needsUpdate = true;
+      }
+
+      const mat = new THREE.MeshStandardMaterial({ map: texture, normalMap });
+
+      if (mesh) scene.remove(mesh);
+      const geo = new THREE.PlaneGeometry(1 * scale, 1 * scale);
+      mesh = new THREE.Mesh(geo, mat);
+      scene.add(mesh);
+    };
+
+    downloadBtn.onclick = () => {
+      if (!mesh) return alert("Génère un modèle d'abord.");
+
+      const exporter = new GLTFExporter();
+      exporter.parse(
+        mesh,
+        (gltf) => {
+          const blob = new Blob([gltf], { type: 'model/gltf-binary' });
+          const link = document.createElement('a');
+          link.href = URL.createObjectURL(blob);
+          link.download = 'model.glb';
+          link.click();
+        },
+        { binary: true }
+      );
+    };
+  </script>
+</body>
+</html>
