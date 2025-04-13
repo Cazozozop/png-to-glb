@@ -22,10 +22,28 @@
       height: 500px;
       display: block;
     }
-    input, button, select {
+    /* Style général pour les boutons */
+    button {
       margin: 10px;
-      padding: 8px;
+      padding: 8px 16px;
       font-size: 14px;
+      background-color: #1b74e4;
+      border: none;
+      border-radius: 4px;
+      color: white;
+      cursor: pointer;
+      transition: background-color 0.3s;
+    }
+    /* Même si le bouton est disabled, on force le style pour que le texte reste lisible */
+    button:disabled {
+      background-color: #444;
+      color: #fff;
+      opacity: 1;
+      cursor: not-allowed;
+    }
+    /* Effet sur hover (uniquement pour les boutons actifs) */
+    button:not(:disabled):hover {
+      background-color: #1662c4;
     }
   </style>
 </head>
@@ -33,7 +51,7 @@
   <h1>Extrude Texture to GLB (Bloxd.io)</h1>
   <!-- Import de l'image -->
   <input type="file" id="textureInput" accept="image/png, image/jpeg" />
-  <!-- Choix d'échelle (8x8, 16x16, etc.) -->
+  <!-- Choix d'échelle -->
   <select id="scaleSelect">
     <option value="0.75">8×8 → 0.75</option>
     <option value="1.5">16×16 → 1.5</option>
@@ -46,9 +64,7 @@
   <!-- Conteneur pour le visualiseur -->
   <div id="viewer"></div>
 
-  <!-- Code JavaScript en module -->
   <script type="module">
-    // Import depuis un CDN de three.js, OrbitControls et GLTFExporter
     import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.module.js";
     import { OrbitControls } from "https://cdn.jsdelivr.net/npm/three@0.158.0/examples/jsm/controls/OrbitControls.js";
     import { GLTFExporter } from "https://cdn.jsdelivr.net/npm/three@0.158.0/examples/jsm/exporters/GLTFExporter.js";
@@ -66,107 +82,87 @@
       scene = new THREE.Scene();
       scene.background = new THREE.Color(0x222222);
 
-      // Création de la caméra avec un aspect basé sur le conteneur viewer
       const aspect = viewerDiv.clientWidth / 500;
       camera = new THREE.PerspectiveCamera(45, aspect, 0.1, 100);
       camera.position.set(2, 2, 2);
 
-      // Création du renderer
       renderer = new THREE.WebGLRenderer({ antialias: true });
       renderer.setSize(viewerDiv.clientWidth, 500);
       viewerDiv.innerHTML = "";
       viewerDiv.appendChild(renderer.domElement);
 
-      // Ajout des contrôles orbit pour naviguer dans la scène
       controls = new OrbitControls(camera, renderer.domElement);
       controls.enableDamping = true;
 
-      // Éclairage de la scène
       scene.add(new THREE.AmbientLight(0x888888));
       const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
       directionalLight.position.set(5, 5, 5);
       scene.add(directionalLight);
     }
 
-    // Animation de la scène
     function animate() {
       requestAnimationFrame(animate);
-      if (controls) controls.update();
+      controls.update();
       renderer.render(scene, camera);
     }
 
     initScene();
     animate();
 
-    // Lorsque l'utilisateur sélectionne une texture
+    // Chargement de la texture à partir du fichier sélectionné
     textureInput.addEventListener("change", (e) => {
       const file = e.target.files[0];
       if (!file) return;
       const url = URL.createObjectURL(file);
       const loader = new THREE.TextureLoader();
       loader.load(url, (loadedTexture) => {
-        // On applique le filtre "Nearest" pour un rendu pixelisé
         loadedTexture.magFilter = THREE.NearestFilter;
         loadedTexture.minFilter = THREE.NearestFilter;
         texture = loadedTexture;
-        generateBtn.disabled = false; // Active le bouton de génération
+        generateBtn.disabled = false; // On active le bouton une fois la texture chargée
       });
     });
 
-    // Crée un mesh extrudé en fonction de la texture et de l'échelle
+    // Création d'un mesh extrudé à partir de la texture et de l'échelle choisie
     function createExtrudedMesh(tex, scale) {
-      // On normalise la taille de l'image (16 pixels = 1 unité)
       const imgWidth = tex.image.width;
       const imgHeight = tex.image.height;
       const w = imgWidth / 16;
       const h = imgHeight / 16;
-      // Épaisseur correspondant à 1 pixel (1/16 d'unité)
+      // Profondeur correspondant à 1 pixel (1/16 d'une unité)
       const depth = 1 / 16;
       
-      // On crée une boîte (BoxGeometry) avec largeur, hauteur et profondeur
+      // Création d'une boîte (box) de dimensions calculées
       const geometry = new THREE.BoxGeometry(w, h, depth);
-
-      // Pour cet exemple, on applique la texture sur la face avant, et on utilise la même texture pour les autres faces.
-      // Dans une version plus poussée, on pourrait utiliser des matériaux différents pour simuler l'extrusion (par exemple, extraire les bords).
-      const materialFront = new THREE.MeshStandardMaterial({ map: tex });
-      const materialSide = new THREE.MeshStandardMaterial({ map: tex });
-      // Tableau des matériaux dans l'ordre [right, left, top, bottom, front, back]
-      const materials = [
-        materialSide, // droite
-        materialSide, // gauche
-        materialSide, // haut
-        materialSide, // bas
-        materialFront, // face avant
-        materialSide  // face arrière
-      ];
-      const box = new THREE.Mesh(geometry, materials);
+      // On applique la texture sur toutes les faces (pour simplifier l'exemple)
+      const material = new THREE.MeshStandardMaterial({ map: tex });
+      const box = new THREE.Mesh(geometry, material);
       box.scale.set(scale, scale, scale);
       return box;
     }
 
-    // Au clic sur "Visualiser & Générer"
     generateBtn.addEventListener("click", () => {
       if (!texture) return;
-      // Supprime l'ancien mesh s'il existe
+      // Suppression de l'ancien mesh s'il existe
       if (mesh) {
         scene.remove(mesh);
         mesh.geometry.dispose();
-        if(Array.isArray(mesh.material)) {
+        if (Array.isArray(mesh.material)) {
           mesh.material.forEach(mat => mat.dispose());
+        } else {
+          mesh.material.dispose();
         }
       }
       const scale = parseFloat(scaleSelect.value);
       mesh = createExtrudedMesh(texture, scale);
       scene.add(mesh);
-      downloadBtn.disabled = false; // On active le bouton de téléchargement
+      downloadBtn.disabled = false; // Active le bouton téléchargement
     });
 
-    // Téléchargement du modèle en .glb
     downloadBtn.addEventListener("click", () => {
       if (!mesh) return;
       const exporter = new GLTFExporter();
       exporter.parse(mesh, (result) => {
-        // Comme nous utilisons { binary: true }, result est un ArrayBuffer
         const blob = new Blob([result], { type: "application/octet-stream" });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
@@ -175,6 +171,7 @@
         a.download = "extruded_model.glb";
         document.body.appendChild(a);
         a.click();
+        document.body.removeChild(a);
         URL.revokeObjectURL(url);
       }, { binary: true });
     });
