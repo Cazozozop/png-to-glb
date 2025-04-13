@@ -15,14 +15,14 @@
     #viewer {
       width: 100%;
       max-width: 800px;
-      margin: 0 auto;
+      margin: 20px auto;
     }
     canvas {
       width: 100%;
       height: 500px;
       display: block;
     }
-    input, button, select {
+    input, button, select, label {
       margin: 10px;
       padding: 8px;
       font-size: 14px;
@@ -48,21 +48,28 @@
 </head>
 <body>
   <h1>Extrude Texture to GLB (Bloxd.io)</h1>
+  <!-- Import de la texture -->
   <input type="file" id="textureInput" accept="image/png, image/jpeg" />
+  <!-- Sélecteur d'échelle -->
   <select id="scaleSelect">
     <option value="0.75">8×8 → 0.75</option>
     <option value="1.5">16×16 → 1.5</option>
     <option value="3">32×32 → 3</option>
     <option value="6">64×64 → 6</option>
   </select>
+  <!-- Case à cocher pour activer la normal map (relief) -->
+  <label>
+    <input type="checkbox" id="normalCheckbox" /> Appliquer relief (normal map)
+  </label>
+  <!-- Boutons de génération et téléchargement -->
   <button id="generateBtn" disabled>Visualiser & Générer</button>
   <button id="downloadBtn" disabled>Télécharger .glb</button>
+  <!-- Conteneur pour le visualiseur -->
   <div id="viewer"></div>
 
-  <!-- Utilisation des modules three.js depuis CDN -->
   <script type="module">
+    // On attend que le DOM soit entièrement chargé
     document.addEventListener("DOMContentLoaded", () => {
-      // Déclarations de variables et récupération des éléments
       let scene, camera, renderer, controls;
       let mesh = null, texture = null;
       const viewerDiv = document.getElementById("viewer");
@@ -70,8 +77,9 @@
       const generateBtn = document.getElementById("generateBtn");
       const downloadBtn = document.getElementById("downloadBtn");
       const scaleSelect = document.getElementById("scaleSelect");
+      const normalCheckbox = document.getElementById("normalCheckbox");
 
-      // Import des modules Three.js
+      // Import depuis les CDN Three.js et ses modules
       import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.module.js";
       import { OrbitControls } from "https://cdn.jsdelivr.net/npm/three@0.158.0/examples/jsm/controls/OrbitControls.js";
       import { GLTFExporter } from "https://cdn.jsdelivr.net/npm/three@0.158.0/examples/jsm/exporters/GLTFExporter.js";
@@ -80,38 +88,84 @@
       function initScene() {
         scene = new THREE.Scene();
         scene.background = new THREE.Color(0x222222);
-
         const aspect = viewerDiv.clientWidth / 500;
         camera = new THREE.PerspectiveCamera(45, aspect, 0.1, 100);
         camera.position.set(2, 2, 2);
-
         renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(viewerDiv.clientWidth, 500);
-        // On vide le conteneur et on y ajoute le renderer
         viewerDiv.innerHTML = "";
         viewerDiv.appendChild(renderer.domElement);
-
         controls = new OrbitControls(camera, renderer.domElement);
         controls.enableDamping = true;
-
-        // Ajout de l'éclairage
         scene.add(new THREE.AmbientLight(0x888888));
         const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
         directionalLight.position.set(5, 5, 5);
         scene.add(directionalLight);
       }
-
-      // Fonction d'animation
+      
       function animate() {
         requestAnimationFrame(animate);
         controls.update();
         renderer.render(scene, camera);
       }
-
-      // Initialisation
+      
       initScene();
       animate();
-
+      
+      // Fonction pour générer une normal map à partir d'une image
+      function generateNormalMap(image) {
+        const width = image.width, height = image.height;
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(image, 0, 0);
+        const imgData = ctx.getImageData(0, 0, width, height);
+        const data = imgData.data;
+        const normalData = ctx.createImageData(width, height);
+        
+        // Fonction pour obtenir l'intensité (niveaux de gris) d'un pixel
+        function getIntensity(x, y) {
+          x = Math.max(0, Math.min(width - 1, x));
+          y = Math.max(0, Math.min(height - 1, y));
+          const index = (y * width + x) * 4;
+          return (data[index] + data[index + 1] + data[index + 2]) / 3;
+        }
+        
+        for (let y = 0; y < height; y++) {
+          for (let x = 0; x < width; x++) {
+            const left = getIntensity(x - 1, y);
+            const right = getIntensity(x + 1, y);
+            const top = getIntensity(x, y - 1);
+            const bottom = getIntensity(x, y + 1);
+            const dx = right - left;
+            const dy = bottom - top;
+            // Création d'un vecteur normal approximé
+            let nx = -dx;
+            let ny = -dy;
+            let nz = 1;
+            const len = Math.sqrt(nx * nx + ny * ny + nz * nz);
+            nx /= len; ny /= len; nz /= len;
+            // Conversion de [-1,1] vers [0,255]
+            const r = Math.floor((nx + 1) * 0.5 * 255);
+            const g = Math.floor((ny + 1) * 0.5 * 255);
+            const b = Math.floor((nz + 1) * 0.5 * 255);
+            const idx = (y * width + x) * 4;
+            normalData.data[idx] = r;
+            normalData.data[idx + 1] = g;
+            normalData.data[idx + 2] = b;
+            normalData.data[idx + 3] = 255; // opacité maximale
+          }
+        }
+        // On crée un nouveau canvas contenant la normal map et on le retourne
+        const outCanvas = document.createElement("canvas");
+        outCanvas.width = width;
+        outCanvas.height = height;
+        const outCtx = outCanvas.getContext("2d");
+        outCtx.putImageData(normalData, 0, 0);
+        return outCanvas;
+      }
+      
       // Gestion du chargement de la texture
       textureInput.addEventListener("change", (e) => {
         const file = e.target.files[0];
@@ -119,35 +173,58 @@
         const url = URL.createObjectURL(file);
         const loader = new THREE.TextureLoader();
         loader.load(url, (loadedTexture) => {
-          console.log("Texture chargée", loadedTexture);
           loadedTexture.magFilter = THREE.NearestFilter;
           loadedTexture.minFilter = THREE.NearestFilter;
           texture = loadedTexture;
-          generateBtn.disabled = false; // On active le bouton de génération
+          generateBtn.disabled = false; // Active le bouton une fois la texture chargée
+          // Dès l'import, on affiche la texture dans le viewer : on crée un petit plan pour prévisualiser
+          if(mesh) {
+            scene.remove(mesh);
+            mesh.geometry.dispose();
+            mesh.material.dispose();
+          }
+          // Création d'un mesh de prévisualisation (un plan centré)
+          const planeGeo = new THREE.PlaneGeometry(texture.image.width / 16, texture.image.height / 16);
+          const planeMat = new THREE.MeshBasicMaterial({ map: texture });
+          const plane = new THREE.Mesh(planeGeo, planeMat);
+          // On retire tout mesh précédent pour éviter de cumuler
+          scene.traverse(object => {
+            if(object.isMesh) scene.remove(object);
+          });
+          scene.add(plane);
         });
       });
-
+      
       // Création du mesh extrudé
-      function createExtrudedMesh(tex, scale) {
+      function createExtrudedMesh(tex, scale, useNormalMap) {
         const imgWidth = tex.image.width;
         const imgHeight = tex.image.height;
-        // En considérant 16 pixels = 1 unité
+        // 16 pixels = 1 unité
         const w = imgWidth / 16;
         const h = imgHeight / 16;
-        // Épaisseur = 1 pixel = 1/16 d'unité
+        // Épaisseur = 1 pixel = 1/16 d'une unité
         const depth = 1 / 16;
         const geometry = new THREE.BoxGeometry(w, h, depth);
-        // On applique la texture sur toutes les faces pour simplifier
-        const material = new THREE.MeshStandardMaterial({ map: tex });
+        
+        let materialParams = { map: tex };
+        if(useNormalMap) {
+          // Génère la normal map à partir de l'image de la texture
+          const normalCanvas = generateNormalMap(tex.image);
+          const normalTexture = new THREE.CanvasTexture(normalCanvas);
+          normalTexture.magFilter = THREE.NearestFilter;
+          normalTexture.minFilter = THREE.NearestFilter;
+          materialParams.normalMap = normalTexture;
+        }
+        const material = new THREE.MeshStandardMaterial(materialParams);
         const box = new THREE.Mesh(geometry, material);
         box.scale.set(scale, scale, scale);
         return box;
       }
-
-      // Bouton Visualiser & Générer
+      
+      // Au clic sur "Visualiser & Générer"
       generateBtn.addEventListener("click", () => {
-        console.log("Bouton Visualiser cliqué");
         if (!texture) return;
+        // Supprime éventuellement le mesh existant
         if (mesh) {
           scene.remove(mesh);
           mesh.geometry.dispose();
@@ -158,14 +235,15 @@
           }
         }
         const scale = parseFloat(scaleSelect.value);
-        mesh = createExtrudedMesh(texture, scale);
+        // On vérifie si la case "Normal map" est cochée
+        const useNormal = normalCheckbox.checked;
+        mesh = createExtrudedMesh(texture, scale, useNormal);
         scene.add(mesh);
-        downloadBtn.disabled = false; // Active le bouton de téléchargement
+        downloadBtn.disabled = false; // Active le téléchargement
       });
-
-      // Bouton Télécharger .glb
+      
+      // Au clic sur "Télécharger .glb"
       downloadBtn.addEventListener("click", () => {
-        console.log("Bouton Télécharger cliqué");
         if (!mesh) return;
         const exporter = new GLTFExporter();
         exporter.parse(mesh, (result) => {
