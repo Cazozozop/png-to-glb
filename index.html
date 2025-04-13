@@ -28,22 +28,25 @@
     <option value="3">32×32 → 3</option>
     <option value="6">64×64 → 6</option>
   </select>
-  <button id="generateBtn">Visualiser & Générer</button>
+  <button id="generateBtn" disabled>Visualiser & Générer</button>
   <button id="downloadBtn" disabled>Télécharger .glb</button>
   <div id="viewer"></div>
 
   <script type="module">
-    import * as THREE from "https://cdn.skypack.dev/three@0.158.0";
-    import { GLTFExporter } from "https://cdn.skypack.dev/three@0.158.0/examples/jsm/exporters/GLTFExporter.js";
-    import { OrbitControls } from "https://cdn.skypack.dev/three@0.158.0/examples/jsm/controls/OrbitControls.js";
+    import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.module.js";
+    import { GLTFExporter } from "https://cdn.jsdelivr.net/npm/three@0.158.0/examples/jsm/exporters/GLTFExporter.js";
+    import { OrbitControls } from "https://cdn.jsdelivr.net/npm/three@0.158.0/examples/jsm/controls/OrbitControls.js";
 
-    let scene, camera, renderer, controls, mesh;
+    let scene, camera, renderer, controls, mesh, texture;
 
     const viewer = document.getElementById('viewer');
     const textureInput = document.getElementById('textureInput');
     const generateBtn = document.getElementById('generateBtn');
     const downloadBtn = document.getElementById('downloadBtn');
     const scaleSelect = document.getElementById('scaleSelect');
+
+    initViewer();
+    animate();
 
     function initViewer() {
       scene = new THREE.Scene();
@@ -63,7 +66,6 @@
       const light = new THREE.DirectionalLight(0xffffff, 1);
       light.position.set(5, 5, 5);
       scene.add(light);
-
       scene.add(new THREE.AmbientLight(0x888888));
     }
 
@@ -73,94 +75,93 @@
       renderer.render(scene, camera);
     }
 
-    function getSideMaterial(texture, side) {
-      const canvas = document.createElement('canvas');
-      canvas.width = 1;
-      canvas.height = texture.image.height;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(texture.image, 0, 0);
-      let colorData;
-      switch (side) {
-        case 'left':
-          colorData = ctx.getImageData(0, 0, 1, canvas.height);
-          break;
-        case 'right':
-          colorData = ctx.getImageData(texture.image.width - 1, 0, 1, canvas.height);
-          break;
-        default:
-          colorData = ctx.getImageData(0, 0, 1, canvas.height);
-      }
-
-      const sideCanvas = document.createElement('canvas');
-      sideCanvas.width = 1;
-      sideCanvas.height = canvas.height;
-      sideCanvas.getContext('2d').putImageData(colorData, 0, 0);
-
-      const sideTexture = new THREE.CanvasTexture(sideCanvas);
-      return new THREE.MeshStandardMaterial({ map: sideTexture });
-    }
-
-    function createExtrudedMesh(texture, scale = 1) {
-      const w = texture.image.width / 16;
-      const h = texture.image.height / 16;
-      const depth = 1 / 16;
-
-      const geometry = new THREE.BoxGeometry(w, h, depth);
-      const front = new THREE.MeshStandardMaterial({ map: texture });
-      const back = new THREE.MeshStandardMaterial({ map: texture });
-      const left = getSideMaterial(texture, 'left');
-      const right = getSideMaterial(texture, 'right');
-      const top = left;
-      const bottom = left;
-
-      const materials = [right, left, top, bottom, front, back];
-      const mesh = new THREE.Mesh(geometry, materials);
-      mesh.scale.set(scale, scale, scale);
-      return mesh;
-    }
-
-    let currentTexture = null;
-
-    textureInput.addEventListener('change', async (e) => {
+    textureInput.addEventListener('change', (e) => {
       const file = e.target.files[0];
       if (!file) return;
       const url = URL.createObjectURL(file);
       const loader = new THREE.TextureLoader();
       loader.load(url, (tex) => {
-        currentTexture = tex;
+        tex.magFilter = THREE.NearestFilter;
+        tex.minFilter = THREE.NearestFilter;
+        texture = tex;
         generateBtn.disabled = false;
       });
     });
 
+    function getSideMaterial(tex, side) {
+      const canvas = document.createElement('canvas');
+      const w = tex.image.width;
+      const h = tex.image.height;
+      canvas.width = 1;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(tex.image, 0, 0);
+
+      let colorData;
+      if (side === 'left') {
+        colorData = ctx.getImageData(0, 0, 1, h);
+      } else if (side === 'right') {
+        colorData = ctx.getImageData(w - 1, 0, 1, h);
+      } else {
+        colorData = ctx.getImageData(0, 0, 1, h);
+      }
+
+      const sideCanvas = document.createElement('canvas');
+      sideCanvas.width = 1;
+      sideCanvas.height = h;
+      sideCanvas.getContext('2d').putImageData(colorData, 0, 0);
+
+      const sideTexture = new THREE.CanvasTexture(sideCanvas);
+      sideTexture.magFilter = THREE.NearestFilter;
+      sideTexture.minFilter = THREE.NearestFilter;
+
+      return new THREE.MeshStandardMaterial({ map: sideTexture });
+    }
+
+    function createExtrudedMesh(tex, scale = 1) {
+      const w = tex.image.width / 16;
+      const h = tex.image.height / 16;
+      const depth = 1 / 16;
+
+      const geometry = new THREE.BoxGeometry(w, h, depth);
+      const front = new THREE.MeshStandardMaterial({ map: tex });
+      const back = front;
+      const left = getSideMaterial(tex, 'left');
+      const right = getSideMaterial(tex, 'right');
+      const top = left;
+      const bottom = left;
+
+      const materials = [right, left, top, bottom, front, back];
+      const box = new THREE.Mesh(geometry, materials);
+      box.scale.set(scale, scale, scale);
+      return box;
+    }
+
     generateBtn.addEventListener('click', () => {
-      if (!currentTexture) return;
+      if (!texture) return;
       if (mesh) scene.remove(mesh);
       const scale = parseFloat(scaleSelect.value);
-      mesh = createExtrudedMesh(currentTexture, scale);
+      mesh = createExtrudedMesh(texture, scale);
       scene.add(mesh);
       downloadBtn.disabled = false;
     });
 
     downloadBtn.addEventListener('click', () => {
+      if (!mesh) return;
       const exporter = new GLTFExporter();
       exporter.parse(
-        scene,
+        mesh,
         (result) => {
-          const blob = new Blob([result instanceof ArrayBuffer ? result : JSON.stringify(result)], {
-            type: 'application/octet-stream',
-          });
+          const blob = new Blob([result], { type: 'application/octet-stream' });
           const url = URL.createObjectURL(blob);
           const a = document.createElement('a');
           a.href = url;
-          a.download = 'item.glb';
+          a.download = 'extruded_model.glb';
           a.click();
         },
         { binary: true }
       );
     });
-
-    initViewer();
-    animate();
   </script>
 </body>
 </html>
