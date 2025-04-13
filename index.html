@@ -1,119 +1,166 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>GLB Texture Tool</title>
+  <meta charset="UTF-8">
+  <title>Extrude Texture to GLB</title>
   <style>
     body {
       font-family: sans-serif;
-      background-color: #111;
-      color: #eee;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      padding: 2rem;
+      background: #111;
+      color: white;
+      text-align: center;
     }
-    canvas {
-      width: 400px;
-      height: 400px;
-      border: 1px solid #444;
-      margin-top: 1rem;
-    }
-    input, select, button {
-      margin: 0.5rem;
+    canvas { width: 100%; height: 500px; display: block; }
+    #viewer { margin: 20px auto; width: 90%; max-width: 800px; }
+    input, button, select {
+      margin: 10px;
+      padding: 8px;
+      font-size: 14px;
     }
   </style>
 </head>
 <body>
-  <h1>GLB Texture Tool</h1>
-  <input type="file" id="textureInput" accept="image/*" />
+  <h1>Extrude Texture to GLB (Bloxd.io)</h1>
+  <input type="file" id="textureInput" accept="image/png, image/jpeg" />
   <select id="scaleSelect">
-    <option value="0.75">8x8 (0.75)</option>
-    <option value="1.5">16x16 (1.5)</option>
-    <option value="3.0">32x32 (3.0)</option>
-    <option value="6.0">64x64 (6.0)</option>
+    <option value="0.75">8×8 → 0.75</option>
+    <option value="1.5">16×16 → 1.5</option>
+    <option value="3">32×32 → 3</option>
+    <option value="6">64×64 → 6</option>
   </select>
-  <label><input type="checkbox" id="normalMapCheck" /> Générer normal map</label>
-  <button id="generateBtn">Visualiser</button>
-  <button id="downloadBtn">Télécharger GLB</button>
+  <button id="generateBtn">Visualiser & Générer</button>
+  <button id="downloadBtn" disabled>Télécharger .glb</button>
   <div id="viewer"></div>
 
   <script type="module">
-    import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.1/build/three.module.js';
-    import { GLTFExporter } from 'https://cdn.jsdelivr.net/npm/three@0.160.1/examples/jsm/exporters/GLTFExporter.js';
-    import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.160.1/examples/jsm/controls/OrbitControls.js';
+    import * as THREE from "https://cdn.skypack.dev/three@0.158.0";
+    import { GLTFExporter } from "https://cdn.skypack.dev/three@0.158.0/examples/jsm/exporters/GLTFExporter.js";
+    import { OrbitControls } from "https://cdn.skypack.dev/three@0.158.0/examples/jsm/controls/OrbitControls.js";
 
-    let scene, camera, renderer, mesh, controls;
+    let scene, camera, renderer, controls, mesh;
 
     const viewer = document.getElementById('viewer');
+    const textureInput = document.getElementById('textureInput');
     const generateBtn = document.getElementById('generateBtn');
     const downloadBtn = document.getElementById('downloadBtn');
-
-    const textureInput = document.getElementById('textureInput');
     const scaleSelect = document.getElementById('scaleSelect');
-    const normalMapCheck = document.getElementById('normalMapCheck');
 
-    init();
-
-    function init() {
+    function initViewer() {
       scene = new THREE.Scene();
-      scene.background = new THREE.Color('#222');
-      camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
-      camera.position.set(0, 0, 3);
+      scene.background = new THREE.Color(0x222222);
 
-      renderer = new THREE.WebGLRenderer();
-      renderer.setSize(400, 400);
+      camera = new THREE.PerspectiveCamera(45, viewer.clientWidth / 500, 0.1, 100);
+      camera.position.set(2, 2, 2);
+
+      renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(viewer.clientWidth, 500);
+      viewer.innerHTML = '';
       viewer.appendChild(renderer.domElement);
 
       controls = new OrbitControls(camera, renderer.domElement);
-      animate();
+      controls.enableDamping = true;
+
+      const light = new THREE.DirectionalLight(0xffffff, 1);
+      light.position.set(5, 5, 5);
+      scene.add(light);
+
+      scene.add(new THREE.AmbientLight(0x888888));
     }
 
     function animate() {
       requestAnimationFrame(animate);
+      controls.update();
       renderer.render(scene, camera);
     }
 
-    generateBtn.onclick = async () => {
-      if (!textureInput.files[0]) return alert("Choisis une texture.");
-      const scale = parseFloat(scaleSelect.value);
-      const texURL = URL.createObjectURL(textureInput.files[0]);
-
-      const loader = new THREE.TextureLoader();
-      const texture = await loader.loadAsync(texURL);
-      let normalMap = null;
-
-      if (normalMapCheck.checked) {
-        normalMap = texture.clone();
-        normalMap.encoding = THREE.LinearEncoding;
-        normalMap.needsUpdate = true;
+    function getSideMaterial(texture, side) {
+      const canvas = document.createElement('canvas');
+      canvas.width = 1;
+      canvas.height = texture.image.height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(texture.image, 0, 0);
+      let colorData;
+      switch (side) {
+        case 'left':
+          colorData = ctx.getImageData(0, 0, 1, canvas.height);
+          break;
+        case 'right':
+          colorData = ctx.getImageData(texture.image.width - 1, 0, 1, canvas.height);
+          break;
+        default:
+          colorData = ctx.getImageData(0, 0, 1, canvas.height);
       }
 
-      const mat = new THREE.MeshStandardMaterial({ map: texture, normalMap });
+      const sideCanvas = document.createElement('canvas');
+      sideCanvas.width = 1;
+      sideCanvas.height = canvas.height;
+      sideCanvas.getContext('2d').putImageData(colorData, 0, 0);
 
+      const sideTexture = new THREE.CanvasTexture(sideCanvas);
+      return new THREE.MeshStandardMaterial({ map: sideTexture });
+    }
+
+    function createExtrudedMesh(texture, scale = 1) {
+      const w = texture.image.width / 16;
+      const h = texture.image.height / 16;
+      const depth = 1 / 16;
+
+      const geometry = new THREE.BoxGeometry(w, h, depth);
+      const front = new THREE.MeshStandardMaterial({ map: texture });
+      const back = new THREE.MeshStandardMaterial({ map: texture });
+      const left = getSideMaterial(texture, 'left');
+      const right = getSideMaterial(texture, 'right');
+      const top = left;
+      const bottom = left;
+
+      const materials = [right, left, top, bottom, front, back];
+      const mesh = new THREE.Mesh(geometry, materials);
+      mesh.scale.set(scale, scale, scale);
+      return mesh;
+    }
+
+    let currentTexture = null;
+
+    textureInput.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const url = URL.createObjectURL(file);
+      const loader = new THREE.TextureLoader();
+      loader.load(url, (tex) => {
+        currentTexture = tex;
+        generateBtn.disabled = false;
+      });
+    });
+
+    generateBtn.addEventListener('click', () => {
+      if (!currentTexture) return;
       if (mesh) scene.remove(mesh);
-      const geo = new THREE.PlaneGeometry(1 * scale, 1 * scale);
-      mesh = new THREE.Mesh(geo, mat);
+      const scale = parseFloat(scaleSelect.value);
+      mesh = createExtrudedMesh(currentTexture, scale);
       scene.add(mesh);
-    };
+      downloadBtn.disabled = false;
+    });
 
-    downloadBtn.onclick = () => {
-      if (!mesh) return alert("Génère un modèle d'abord.");
-
+    downloadBtn.addEventListener('click', () => {
       const exporter = new GLTFExporter();
       exporter.parse(
-        mesh,
-        (gltf) => {
-          const blob = new Blob([gltf], { type: 'model/gltf-binary' });
-          const link = document.createElement('a');
-          link.href = URL.createObjectURL(blob);
-          link.download = 'model.glb';
-          link.click();
+        scene,
+        (result) => {
+          const blob = new Blob([result instanceof ArrayBuffer ? result : JSON.stringify(result)], {
+            type: 'application/octet-stream',
+          });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'item.glb';
+          a.click();
         },
         { binary: true }
       );
-    };
+    });
+
+    initViewer();
+    animate();
   </script>
 </body>
 </html>
