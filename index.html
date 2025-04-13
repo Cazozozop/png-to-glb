@@ -38,7 +38,6 @@
     import { OrbitControls } from "https://cdn.jsdelivr.net/npm/three@0.158.0/examples/jsm/controls/OrbitControls.js";
 
     let scene, camera, renderer, controls, mesh, texture;
-
     const viewer = document.getElementById('viewer');
     const textureInput = document.getElementById('textureInput');
     const generateBtn = document.getElementById('generateBtn');
@@ -88,51 +87,14 @@
       });
     });
 
-    function getSideMaterial(tex, side) {
-      const canvas = document.createElement('canvas');
-      const w = tex.image.width;
-      const h = tex.image.height;
-      canvas.width = 1;
-      canvas.height = h;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(tex.image, 0, 0);
-
-      let colorData;
-      if (side === 'left') {
-        colorData = ctx.getImageData(0, 0, 1, h);
-      } else if (side === 'right') {
-        colorData = ctx.getImageData(w - 1, 0, 1, h);
-      } else {
-        colorData = ctx.getImageData(0, 0, 1, h);
-      }
-
-      const sideCanvas = document.createElement('canvas');
-      sideCanvas.width = 1;
-      sideCanvas.height = h;
-      sideCanvas.getContext('2d').putImageData(colorData, 0, 0);
-
-      const sideTexture = new THREE.CanvasTexture(sideCanvas);
-      sideTexture.magFilter = THREE.NearestFilter;
-      sideTexture.minFilter = THREE.NearestFilter;
-
-      return new THREE.MeshStandardMaterial({ map: sideTexture });
-    }
-
     function createExtrudedMesh(tex, scale = 1) {
       const w = tex.image.width / 16;
       const h = tex.image.height / 16;
-      const depth = 1 / 16;
+      const depth = 0.1;  // Très faible profondeur pour l'extrusion
 
       const geometry = new THREE.BoxGeometry(w, h, depth);
-      const front = new THREE.MeshStandardMaterial({ map: tex });
-      const back = front;
-      const left = getSideMaterial(tex, 'left');
-      const right = getSideMaterial(tex, 'right');
-      const top = left;
-      const bottom = left;
-
-      const materials = [right, left, top, bottom, front, back];
-      const box = new THREE.Mesh(geometry, materials);
+      const material = new THREE.MeshStandardMaterial({ map: tex });
+      const box = new THREE.Mesh(geometry, material);
       box.scale.set(scale, scale, scale);
       return box;
     }
